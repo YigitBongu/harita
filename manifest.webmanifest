@@ -1,0 +1,17 @@
+{
+  "name": "Harita — Eski Zaman",
+  "short_name": "Harita",
+  "description": "Gerçek dünya haritası, eski zaman parşömen görünümünde.",
+  "lang": "tr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1d1915",
+  "theme_color": "#3a2819",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

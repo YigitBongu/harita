@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Harita</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#3a2819">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Harita">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Rye&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<style>
+  :root {
+    --ink: #3a2819; --ink-soft: #5a4429; --paper: #e6d6aa; --paper-2: #d8c597; --edge: #4a3320; --accent: #7b3a28;
+    --shadow: rgba(40, 22, 8, .45);
+  }
+  body.night {
+    --ink: #d2be93; --ink-soft: #a99a78; --paper: #2a241c; --paper-2: #1f1a14; --edge: #cbb68a; --accent: #c98a6a;
+    --shadow: rgba(0, 0, 0, .6);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d1915; overscroll-behavior: none; }
+  body { font-family: 'IM Fell English', Georgia, 'Times New Roman', serif; color: var(--ink); }
+  #map { position: fixed; inset: 0; }
+  .maplibregl-canvas { outline: none; }
+
+  /* ---- eskimiş kâğıt katmanı ---- */
+  #paper, #folds { position: fixed; inset: 0; pointer-events: none; }
+  #paper {
+    z-index: 5; mix-blend-mode: multiply;
+    background-image:
+      radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(86, 52, 18, .42) 100%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='700' height='700'><filter id='b'><feTurbulence type='fractalNoise' baseFrequency='0.006' numOctaves='3' seed='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.42  0 0 0 0 0.26  0 0 0 0 0.1  0 0 0 0.75 -0.18'/></filter><rect width='100%25' height='100%25' filter='url(%23b)'/></svg>"),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' seed='9' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.32  0 0 0 0 0.2  0 0 0 0 0.08  0 0 0 0.5 -0.08'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-size: 100% 100%, 700px 700px, 260px 260px;
+  }
+  body.night #paper {
+    background-image:
+      radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0, 0, 0, .7) 100%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' seed='9' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.6  0 0 0 0 0.5  0 0 0 0 0.35  0 0 0 0.22 0.55'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-size: 100% 100%, 260px 260px;
+  }
+  #folds {
+    z-index: 6; opacity: .55;
+    background:
+      linear-gradient(90deg, transparent calc(50% - 6px), rgba(255,244,214,.18) calc(50% - 1px), rgba(60,34,10,.28) 50%, rgba(255,244,214,.12) calc(50% + 2px), transparent calc(50% + 7px)),
+      linear-gradient(0deg, transparent calc(50% - 6px), rgba(255,244,214,.16) calc(50% - 1px), rgba(60,34,10,.24) 50%, rgba(255,244,214,.1) calc(50% + 2px), transparent calc(50% + 7px));
+  }
+  body.night #folds { opacity: .18; }
+
+  /* ---- plaket tarzı denetimler ---- */
+  .plaque {
+    background: linear-gradient(180deg, var(--paper), var(--paper-2));
+    color: var(--ink); border: 2px solid var(--edge); border-radius: 3px;
+    box-shadow: 0 0 0 2px var(--paper-2), 0 0 0 3.5px var(--edge), 0 6px 14px var(--shadow);
+  }
+  #search { position: fixed; z-index: 10; left: calc(14px + env(safe-area-inset-left)); top: calc(14px + env(safe-area-inset-top)); width: min(360px, calc(100vw - 92px)); }
+  #search .row { display: flex; align-items: center; padding: 0 10px; height: 42px; gap: 8px; }
+  #search .row svg { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--ink); stroke-width: 2; }
+  #q { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 17px; outline: none; }
+  #q::placeholder { color: var(--ink-soft); opacity: .8; font-style: italic; }
+  #results { list-style: none; margin: 6px 0 0; padding: 4px 0; max-height: 46vh; overflow: auto; }
+  #results li { padding: 9px 12px; font-size: 15px; line-height: 1.25; cursor: pointer; border-bottom: 1px dotted var(--ink-soft); }
+  #results li:last-child { border-bottom: 0; }
+  #results li:active { background: rgba(120, 80, 30, .2); }
+  #results li.none { color: var(--ink-soft); font-style: italic; cursor: default; }
+
+  #ctrls { position: fixed; z-index: 10; right: calc(14px + env(safe-area-inset-right)); top: calc(14px + env(safe-area-inset-top)); display: flex; flex-direction: column; gap: 10px; }
+  .btn { width: 44px; height: 44px; display: grid; place-items: center; padding: 0; cursor: pointer; font: inherit; }
+  .btn svg { width: 22px; height: 22px; fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn:active { transform: translateY(1px); filter: brightness(.92); }
+  .btn.active { background: var(--edge); }
+  .btn.active svg { stroke: var(--paper); }
+  .zoom-pair { display: flex; flex-direction: column; }
+  .zoom-pair .btn:first-child { border-bottom-width: 1px; border-radius: 3px 3px 0 0; box-shadow: none; }
+  .zoom-pair .btn:last-child { border-top-width: 1px; border-radius: 0 0 3px 3px; box-shadow: none; }
+  .zoom-pair { box-shadow: 0 0 0 2px var(--paper-2), 0 0 0 3.5px var(--edge), 0 6px 14px var(--shadow); border-radius: 3px; }
+  #compass-needle { transition: none; transform-origin: 50% 50%; }
+
+  #legend { position: fixed; z-index: 11; left: calc(14px + env(safe-area-inset-left)); bottom: calc(40px + env(safe-area-inset-bottom)); width: min(300px, calc(100vw - 28px)); max-height: 62vh; overflow: auto; padding: 12px 14px; }
+  #legend h2 { margin: 0 0 6px; font-family: 'Rye', 'IM Fell English', serif; font-weight: 400; font-size: 19px; letter-spacing: .04em; }
+  #legend ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+  #legend li { display: flex; align-items: center; gap: 8px; font-size: 14.5px; line-height: 1.1; }
+  #legend li img { width: 26px; height: 26px; flex: none; }
+  #legend-close { position: absolute; top: 6px; right: 8px; background: none; border: 0; font: inherit; font-size: 22px; color: var(--ink); cursor: pointer; }
+  #btn-legend { position: fixed; z-index: 10; left: calc(14px + env(safe-area-inset-left)); bottom: calc(40px + env(safe-area-inset-bottom)); }
+  #legend:not([hidden]) ~ #btn-legend { display: none; }
+
+  #credit { position: fixed; z-index: 7; left: 0; right: 0; bottom: 0; padding: 4px 10px calc(4px + env(safe-area-inset-bottom)); font-size: 11.5px; text-align: right; color: var(--ink-soft); pointer-events: none; }
+  #credit a { color: inherit; pointer-events: auto; }
+  #toast, #offline { position: fixed; z-index: 20; left: 50%; transform: translateX(-50%); bottom: calc(60px + env(safe-area-inset-bottom)); padding: 8px 16px; font-size: 15px; max-width: 86vw; text-align: center; }
+  #offline { bottom: auto; top: calc(66px + env(safe-area-inset-top)); font-style: italic; }
+  [hidden] { display: none !important; }
+
+  /* ---- konum işareti ---- */
+  .me { width: 30px; height: 30px; display: grid; place-items: center; }
+  .me svg { grid-area: 1/1; fill: #f1e6c4; stroke: #2a1b0e; stroke-width: 2; stroke-linejoin: round; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.55)); }
+  .me-pulse { grid-area: 1/1; width: 30px; height: 30px; border-radius: 50%; border: 2px solid #7b3a28; opacity: 0; animation: pulse 2.2s ease-out infinite; }
+  @keyframes pulse { 0% { transform: scale(.4); opacity: .8; } 100% { transform: scale(1.5); opacity: 0; } }
+</style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="paper"></div>
+  <div id="folds"></div>
+
+  <div id="search">
+    <div class="plaque">
+      <div class="row">
+        <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 L21 21"/></svg>
+        <input id="q" type="search" placeholder="Yer ara…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+      </div>
+    </div>
+    <ul id="results" class="plaque" hidden></ul>
+  </div>
+
+  <div id="ctrls">
+    <div class="zoom-pair">
+      <button class="btn plaque" id="btn-in" aria-label="Yakınlaştır"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="btn plaque" id="btn-out" aria-label="Uzaklaştır"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+    </div>
+    <button class="btn plaque" id="btn-compass" aria-label="Kuzeye çevir">
+      <svg viewBox="0 0 24 24"><g id="compass-needle"><path d="M12 3 L16 12 L12 10.5 L8 12 Z" fill="currentColor" style="fill:var(--accent);stroke:var(--accent)"/><path d="M12 21 L16 12 L12 13.5 L8 12 Z"/></g></svg>
+    </button>
+    <button class="btn plaque" id="btn-locate" aria-label="Konumum"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+    <button class="btn plaque" id="btn-theme" aria-label="Gece / gündüz"><svg viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4 6.8 6.8 0 0 0 20 14.5Z"/></svg></button>
+  </div>
+
+  <div id="legend" class="plaque" hidden>
+    <button id="legend-close" aria-label="Kapat">×</button>
+    <h2>Simgeler</h2>
+    <ul id="legend-list"></ul>
+  </div>
+  <button class="btn plaque" id="btn-legend" aria-label="Simge rehberi"><svg viewBox="0 0 24 24"><path d="M9.2 9a3 3 0 1 1 4.4 2.7c-1 .6-1.6 1.2-1.6 2.3M12 17.6v.1"/></svg></button>
+
+  <div id="credit">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · <a href="https://openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a></div>
+  <div id="toast" class="plaque" hidden></div>
+  <div id="offline" class="plaque" hidden>Harita verisine ulaşılamıyor — bağlantını kontrol et.</div>
+
+  <script src="vendor/maplibre-gl.js"></script>
+  <script src="icons.js"></script>
+  <script src="style.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
