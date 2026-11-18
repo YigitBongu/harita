@@ -149,6 +149,105 @@
   $('#btn-legend').addEventListener('click', () => { const l = $('#legend'); l.hidden = !l.hidden; });
   $('#legend-close').addEventListener('click', () => { $('#legend').hidden = true; });
 
+  // ---- mekân bilgi paneli (simgeye tıklayınca) ----
+  const panel = $('#place');
+  let placeSeq = 0;
+  const KIND_TR = {
+    hospital: 'Hastane', clinic: 'Klinik', doctors: 'Doktor', dentist: 'Diş hekimi', pharmacy: 'Eczane', police: 'Karakol',
+    clothes: 'Giyim dükkânı', hairdresser: 'Kuaför', barber: 'Berber', bank: 'Banka', atm: 'ATM', restaurant: 'Lokanta',
+    fast_food: 'Fast food', cafe: 'Kafe', bakery: 'Fırın', bar: 'Bar', pub: 'Pub', supermarket: 'Market', convenience: 'Bakkal',
+    post_office: 'Postane', fuel: 'Akaryakıt', hotel: 'Otel', hostel: 'Hostel', guest_house: 'Pansiyon', school: 'Okul',
+    kindergarten: 'Anaokulu', university: 'Üniversite', library: 'Kütüphane', place_of_worship: 'İbadethane', fire_station: 'İtfaiye',
+    park: 'Park', museum: 'Müze', attraction: 'Görülecek yer', cemetery: 'Mezarlık', bus_stop: 'Otobüs durağı',
+    bus_station: 'Otogar', railway: 'Tren / metro', station: 'İstasyon', stop: 'Durak', shop: 'Dükkân', mall: 'Alışveriş merkezi',
+  };
+  const hide = () => { placeSeq++; panel.hidden = true; };
+  $('#place-close').addEventListener('click', hide);
+
+  function addRow(dl, label, node) {
+    const dt = document.createElement('dt'); dt.textContent = label;
+    const dd = document.createElement('dd'); dd.append(node);
+    dl.append(dt, dd);
+  }
+  function linkNode(text, href) {
+    const a = document.createElement('a'); a.textContent = text; a.href = href;
+    if (/^https?:/i.test(href)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    return a;
+  }
+  function safeUrl(u) {
+    if (!u) return null;
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = 'https://' + u;
+    return /^https?:\/\//i.test(u) ? u : null;
+  }
+  function addressOf(a) {
+    if (!a) return '';
+    const line1 = [a.road || a.pedestrian || a.footway, a.house_number].filter(Boolean).join(' ');
+    const line2 = [a.quarter || a.suburb || a.neighbourhood, a.town || a.city_district || a.city].filter(Boolean).join(', ');
+    return [line1, line2].filter(Boolean).join(', ');
+  }
+  function fillDetails(row) {
+    const t = row.extratags || {};
+    const dl = $('#place-info');
+    const addr = addressOf(row.address);
+    if (addr) addRow(dl, 'Adres', document.createTextNode(addr));
+    const phone = t.phone || t['contact:phone'];
+    if (phone) addRow(dl, 'Telefon', linkNode(phone, 'tel:' + phone.split(/[;,]/)[0].replace(/[^+\d]/g, '')));
+    const oh = t.opening_hours;
+    if (oh) addRow(dl, 'Saatler', document.createTextNode(oh === '24/7' ? '7/24 açık' : oh));
+    const web = safeUrl(t.website || t['contact:website']);
+    if (web) addRow(dl, 'Web', linkNode(web.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, ''), web));
+    if (!dl.children.length) { $('#place-loading').textContent = 'Bu yer için kayıtlı ek bilgi yok.'; $('#place-loading').hidden = false; }
+  }
+  async function loadDetails(name, lngLat, my) {
+    const lat = lngLat.lat, lon = lngLat.lng, d = 0.0008; // ~90 m kutu
+    const u = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&extratags=1&addressdetails=1&accept-language=tr&bounded=1'
+      + '&viewbox=' + [lon - d, lat + d, lon + d, lat - d].join(',') + '&q=' + encodeURIComponent(name);
+    try {
+      const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 10000);
+      const r = await fetch(u, { signal: ctl.signal }); clearTimeout(to);
+      const rows = await r.json();
+      if (my !== placeSeq) return;
+      const dist = (x) => Math.hypot(+x.lat - lat, +x.lon - lon);
+      const hit = rows.slice().sort((a, b) => dist(a) - dist(b))[0];
+      $('#place-loading').hidden = true;
+      if (hit) fillDetails(hit);
+      else { $('#place-loading').textContent = 'Bu yer için kayıtlı ek bilgi yok.'; $('#place-loading').hidden = false; }
+    } catch (e) {
+      if (my !== placeSeq) return;
+      $('#place-loading').textContent = 'Ayrıntılar şu an alınamadı.'; $('#place-loading').hidden = false;
+    }
+  }
+  function showPlace(f, lngLat) {
+    const p = f.properties || {};
+    const name = p['name:latin'] || p.name || '';
+    const kindKey = p.subclass || p.class || '';
+    const my = ++placeSeq;
+    $('#place-name').textContent = name || (KIND_TR[kindKey] || 'Mekân');
+    $('#place-kind').textContent = name ? (KIND_TR[kindKey] || kindKey.replace(/_/g, ' ')) : '';
+    $('#place-info').innerHTML = '';
+    const act = $('#place-actions'); act.innerHTML = '';
+    act.append(linkNode('Yol tarifi', 'https://www.google.com/maps/dir/?api=1&destination=' + lngLat.lat + ',' + lngLat.lng));
+    const ld = $('#place-loading');
+    ld.textContent = 'Ayrıntılar aranıyor…';
+    ld.hidden = !name;
+    panel.hidden = false;
+    if (name) loadDetails(p.name || name, lngLat, my);
+  }
+  const POI_LAYERS = ['poi', 'poi-bus'];
+  map.on('click', (e) => {
+    const pad = 8;
+    const feats = map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: POI_LAYERS });
+    if (!feats.length) { hide(); return; }
+    const f = feats[0];
+    const c = f.geometry && f.geometry.type === 'Point' ? { lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] } : e.lngLat;
+    showPlace(f, c);
+  });
+  map.on('mousemove', (e) => {
+    const pad = 6;
+    const over = map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: POI_LAYERS }).length > 0;
+    map.getCanvas().style.cursor = over ? 'pointer' : '';
+  });
+
   // ---- küçük bildirim ----
   let tt = null;
   function toast(msg) {
